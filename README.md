@@ -91,10 +91,18 @@ docker compose up --build
 
 ## 🛠️ Local development (without Docker)
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Node.js 20 or newer, then run from the repository root:
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Node.js 20 or newer, then run from the repository root.
+
+On macOS or Linux:
 
 ```bash
 ./install.sh
+```
+
+On Windows, in PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 The script installs the locked backend and frontend dependencies and creates `.env` files if they do not already exist. Set `GROQ_API_KEY` in `backend/.env`. Run each service in a separate terminal:
