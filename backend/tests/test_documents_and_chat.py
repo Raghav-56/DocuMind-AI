@@ -75,3 +75,36 @@ def test_chat_session_requires_ownership(client, auth_headers):
         headers={"Authorization": f"Bearer {token_eve}"},
     )
     assert resp.status_code == 404
+
+
+def test_rejected_batch_leaves_no_files_or_documents(client, auth_headers, monkeypatch):
+    from pathlib import Path
+
+    from app.documents.router import settings
+
+    monkeypatch.setattr(settings, "MAX_UPLOAD_MB", 1)
+    before = client.get("/api/v1/documents", headers=auth_headers).json()
+    files_before = set(Path(settings.UPLOAD_DIR).rglob("*"))
+    files = [
+        ("files", ("valid.txt", io.BytesIO(b"valid content"), "text/plain")),
+        ("files", ("large.txt", io.BytesIO(b"x" * (1024 * 1024 + 1)), "text/plain")),
+    ]
+    resp = client.post("/api/v1/documents/upload", files=files, headers=auth_headers)
+    assert resp.status_code == 400
+    assert client.get("/api/v1/documents", headers=auth_headers).json() == before
+    assert set(Path(settings.UPLOAD_DIR).rglob("*")) == files_before
+
+
+def test_batch_with_unsupported_file_is_rejected_without_saving(client, auth_headers):
+    from pathlib import Path
+
+    from app.documents.router import settings
+
+    before = set(Path(settings.UPLOAD_DIR).rglob("*"))
+    files = [
+        ("files", ("valid.txt", io.BytesIO(b"valid content"), "text/plain")),
+        ("files", ("bad.exe", io.BytesIO(b"invalid"), "application/octet-stream")),
+    ]
+    resp = client.post("/api/v1/documents/upload", files=files, headers=auth_headers)
+    assert resp.status_code == 400
+    assert set(Path(settings.UPLOAD_DIR).rglob("*")) == before
