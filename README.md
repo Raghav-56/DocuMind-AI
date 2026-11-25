@@ -91,20 +91,21 @@ docker compose up --build
 
 ## 🛠️ Local development (without Docker)
 
-**Backend**
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and Node.js 20 or newer, then run from the repository root:
+
 ```bash
-cd backend
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env   # then set GROQ_API_KEY
-uvicorn app.main:app --reload
+./install.sh
 ```
 
-**Frontend**
+The script installs the locked backend and frontend dependencies and creates `.env` files if they do not already exist. Set `GROQ_API_KEY` in `backend/.env`. Run each service in a separate terminal:
+
+```bash
+cd backend
+uv run --locked uvicorn app.main:app --reload
+```
+
 ```bash
 cd frontend
-cp .env.example .env
-npm install
 npm run dev
 ```
 Visit http://localhost:5173. The Vite dev server proxies `/api` to
@@ -113,7 +114,7 @@ Visit http://localhost:5173. The Vite dev server proxies `/api` to
 **Run the test suite**
 ```bash
 cd backend
-pytest -v
+uv run --locked pytest -v
 ```
 
 ---

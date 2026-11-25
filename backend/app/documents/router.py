@@ -1,7 +1,6 @@
 import asyncio
 import os
 import uuid
-from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
@@ -82,37 +81,53 @@ async def upload_documents(
     user_dir = os.path.join(settings.UPLOAD_DIR, current_user.id)
     os.makedirs(user_dir, exist_ok=True)
 
-    created: list[models.Document] = []
     for file in files:
-        ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+        filename = file.filename or ""
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
         if ext not in SUPPORTED_EXTENSIONS:
-            raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.filename}")
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {filename}")
 
-        contents = await file.read()
-        size_mb = len(contents) / (1024 * 1024)
-        if size_mb > settings.MAX_UPLOAD_MB:
-            raise HTTPException(status_code=400, detail=f"{file.filename} exceeds {settings.MAX_UPLOAD_MB}MB limit")
+    created: list[models.Document] = []
+    staged: list[tuple[str, str, str, str]] = []
+    try:
+        for file in files:
+            filename = file.filename or ""
+            ext = filename.rsplit(".", 1)[-1].lower()
+            document_id = str(uuid.uuid4())
+            stored_path = os.path.join(user_dir, f"{document_id}.{ext}")
+            staged.append((document_id, stored_path, filename, ext))
+            size = 0
+            output = await asyncio.to_thread(open, stored_path, "wb")
+            try:
+                while chunk := await file.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > settings.MAX_UPLOAD_MB * 1024 * 1024:
+                        raise HTTPException(status_code=400, detail=f"{filename} exceeds {settings.MAX_UPLOAD_MB}MB limit")
+                    await asyncio.to_thread(output.write, chunk)
+            finally:
+                await asyncio.to_thread(output.close)
 
-        document_id = str(uuid.uuid4())
-        stored_name = f"{document_id}.{ext}"
-        stored_path = os.path.join(user_dir, stored_name)
+            doc_row = models.Document(
+                id=document_id,
+                owner_id=current_user.id,
+                filename=filename,
+                extension=ext,
+                size_bytes=size,
+                status="processing",
+            )
+            db.add(doc_row)
+            created.append(doc_row)
 
-        await asyncio.to_thread(Path(stored_path).write_bytes, contents)
+        db.commit()
+    except Exception:
+        db.rollback()
+        for _, path, _, _ in staged:
+            if os.path.exists(path):
+                os.remove(path)
+        raise
 
-        doc_row = models.Document(
-            id=document_id,
-            owner_id=current_user.id,
-            filename=file.filename,
-            extension=ext,
-            size_bytes=len(contents),
-            status="processing",
-        )
-        db.add(doc_row)
-        created.append(doc_row)
-
-        background_tasks.add_task(_process_document, document_id, current_user.id, stored_path, file.filename, ext)
-
-    db.commit()
+    for document_id, path, filename, ext in staged:
+        background_tasks.add_task(_process_document, document_id, current_user.id, path, filename, ext)
     for d in created:
         db.refresh(d)
     return created
